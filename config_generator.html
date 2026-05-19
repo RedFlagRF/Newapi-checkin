@@ -908,13 +908,49 @@
                 </div>
 
                 <div class="tips" style="margin-top: 16px;">
-<h4>💡 云端同步说明：</h4>
-                    <ul>
-                        <li><strong>坚果云：</strong>需在账户设置中创建「应用专用密码」（非登录密码）</li>
-                        <li><strong>群晖 NAS：</strong>需启用 WebDAV（端口 5005/5006），确保外网可达</li>
-                        <li><strong>NextCloud：</strong>地址格式 <code>https://域名/remote.php/dav/files/用户名/</code></li>
-                        <li><strong>GitHub Actions：</strong>保存后将 <code>CONFIG_URL</code> + <code>CONFIG_AUTH</code> 添加到仓库 Secrets</li>
-                    </ul>
+<h4>💡 各平台配置获取指南：</h4>
+
+                        <div style="margin-bottom: 12px;">
+                            <strong style="color: #34d399;">🥜 坚果云</strong>
+                            <a href="https://help.jianguoyun.com/?tag=webdav" target="_blank" style="color: #a78bfa; font-size: 13px; margin-left: 6px;">官方文档 ↗</a>
+                            <a href="https://content.jianguoyun.com/664.html" target="_blank" style="color: #a78bfa; font-size: 13px; margin-left: 6px;">应用密码创建 ↗</a>
+                            <ul style="margin-left: 20px; color: rgba(255,255,255,0.65); font-size: 13px; line-height: 1.7; margin-top: 4px;">
+                                <li>WebDAV 地址：<code>https://dav.jianguoyun.com/dav/邮箱/</code></li>
+                                <li>创建应用密码：登录坚果云 → <a href="https://www.jianguoyun.com/account/info" target="_blank" style="color: #a78bfa;">账户信息 ↗</a> → 安全选项 → 第三方应用管理 → 添加应用密码</li>
+                                <li>用户名：坚果云注册邮箱；密码：生成的应用专用密码（不是登录密码）</li>
+                            </ul>
+                        </div>
+
+                        <div style="margin-bottom: 12px;">
+                            <strong style="color: #34d399;">🏠 群晖 NAS</strong>
+                            <a href="https://kb.synology.cn/zh-cn/DSM/tutorial/How_to_access_files_on_Synology_NAS_with_WebDAV" target="_blank" style="color: #a78bfa; font-size: 13px; margin-left: 6px;">官方文档 ↗</a>
+                            <a href="https://kb.synology.cn/zh-cn/DSM/help/WebDAVServer/webdav_server" target="_blank" style="color: #a78bfa; font-size: 13px; margin-left: 6px;">WebDAV Server 帮助 ↗</a>
+                            <ul style="margin-left: 20px; color: rgba(255,255,255,0.65); font-size: 13px; line-height: 1.7; margin-top: 4px;">
+                                <li>启用 WebDAV：DSM → 套件中心 → 搜索「WebDAV Server」→ 安装 → 启用 HTTP/HTTPS</li>
+                                <li>HTTPS 端口 5006，HTTP 端口 5005（建议 HTTPS）</li>
+                                <li>地址格式：<code>https://NAS域名:5006/webdav/</code>（需确保 NAS 外网可达）</li>
+                                <li>用户名/密码：群晖系统账号（需有对应共享文件夹的读写权限）</li>
+                            </ul>
+                        </div>
+
+                        <div style="margin-bottom: 12px;">
+                            <strong style="color: #34d399;">☁️ NextCloud</strong>
+                            <a href="https://docs.nextcloud.com/server/latest/user_manual/en/files/access_webdav.html" target="_blank" style="color: #a78bfa; font-size: 13px; margin-left: 6px;">官方文档 ↗</a>
+                            <ul style="margin-left: 20px; color: rgba(255,255,255,0.65); font-size: 13px; line-height: 1.7; margin-top: 4px;">
+                                <li>WebDAV 地址：<code>https://域名/remote.php/dav/files/用户名/</code></li>
+                                <li>在 NextCloud 文件页面 → 设置 → WebDAV 可查看完整地址</li>
+                                <li>如启用了 2FA，需在个人安全设置中创建应用密码</li>
+                                <li>子目录安装：<code>https://域名/nextcloud/remote.php/dav/files/用户名/</code></li>
+                            </ul>
+                        </div>
+
+                        <div>
+                            <strong style="color: #34d399;">⚙️ GitHub Actions 配置</strong>
+                            <ul style="margin-left: 20px; color: rgba(255,255,255,0.65); font-size: 13px; line-height: 1.7; margin-top: 4px;">
+                                <li>保存到云端后，将 <code>CONFIG_URL</code> 和 <code>CONFIG_AUTH</code> 添加到仓库 Settings → Secrets</li>
+                                <li>签到脚本优先从云端拉取配置，失败则 fallback 到 <code>NEWAPI_ACCOUNTS</code></li>
+                            </ul>
+                        </div>
 
                     <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid rgba(52,211,153,0.15);">
                         <h4 style="color: #fbbf24; margin-bottom: 12px; font-size: 14px;">⚠️ CORS 跨域限制解决方案：</h4>
@@ -1434,18 +1470,18 @@
             switch (preset) {
                 case 'jianguoyun':
                     urlInput.value = 'https://dav.jianguoyun.com/dav/';
-                    usernameInput.placeholder = '坚果云注册邮箱';
-                    passwordInput.placeholder = '应用专用密码（非登录密码）';
+                    usernameInput.placeholder = '坚果云注册邮箱（如 user@example.com）';
+                    passwordInput.placeholder = '应用专用密码 → 账户信息 → 安全选项 → 添加应用密码';
                     break;
                 case 'synology':
-                    urlInput.value = 'https://';
+                    urlInput.value = 'https://NAS域名:5006/webdav/';
                     usernameInput.placeholder = '群晖系统用户名';
                     passwordInput.placeholder = '群晖用户密码';
                     break;
                 case 'nextcloud':
-                    urlInput.value = 'https:///remote.php/dav/files//';
+                    urlInput.value = 'https://域名/remote.php/dav/files/用户名/';
                     usernameInput.placeholder = 'NextCloud 用户名';
-                    passwordInput.placeholder = 'NextCloud 密码或应用令牌';
+                    passwordInput.placeholder = 'NextCloud 密码（启用了 2FA 请用应用密码）';
                     break;
                 case 'custom':
                     urlInput.value = '';
