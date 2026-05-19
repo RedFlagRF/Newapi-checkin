@@ -23,6 +23,9 @@ jobs:
       - name: 安装依赖
         run: pip install -r requirements.txt
 
+      - name: 安装 Playwright 浏览器
+        run: playwright install chromium --with-deps
+
       - name: 执行签到
         env:
           NEWAPI_ACCOUNTS: ${{ secrets.NEWAPI_ACCOUNTS }}
