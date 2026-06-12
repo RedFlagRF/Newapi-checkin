@@ -55,9 +55,11 @@ class CloudflareBypasser:
     (对应 Chrome 扩展在同一标签页中完成所有操作)
     """
 
-    def __init__(self, base_url: str, session_cookie: str = None, user_id: str = None):
+    def __init__(self, base_url: str, session_cookie: str = None, user_id: str = None,
+                 system_access_token: str = None):
         self.base_url = base_url.rstrip('/')
         self.session_cookie = session_cookie
+        self.system_access_token = system_access_token
         self.user_id = user_id
         self._playwright_available = self._check_playwright()
 
@@ -162,6 +164,12 @@ class CloudflareBypasser:
                     ])
 
                 page = context.new_page()
+
+                # token 模式下用 set_extra_http_headers 注入 Bearer（cookie 拿不到认证时浏览器侧的请求一样能带上）
+                if self.system_access_token:
+                    page.set_extra_http_headers({
+                        'Authorization': f'Bearer {self.system_access_token}'
+                    })
 
                 print('[CF 绕过] 正在加载页面并等待 CF 验证...')
                 page.goto(self.base_url, wait_until='domcontentloaded', timeout=timeout * 1000)

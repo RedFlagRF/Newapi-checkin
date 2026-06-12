@@ -293,6 +293,63 @@ schedule:
 - `0 16 * * *` - 每天 UTC 16:00（北京时间 0:00）
 
 
+**JSON 格式 + System Access Token（推荐长期使用）：**
+
+System Access Token 通过 `Authorization: Bearer <token>` 头认证，相比 Session Cookie 不易过期、无需抓包，**适合长期稳定使用**。
+
+```json
+[
+  {
+    "url": "https://api.example.com",
+    "system_access_token": "sk-xxxxxxxxxxxxxxxx",
+    "user_id": "123",
+    "name": "Token 账号"
+  }
+]
+```
+
+**Session + Token 混用：**
+```json
+[
+  {
+    "url": "https://api.example.com",
+    "session": "MTc2NzQxMzYzM3xEWDhFQVFMX2dBQUJFQUVRQUFE...",
+    "user_id": "123",
+    "name": "Cookie 账号"
+  },
+  {
+    "url": "https://api.example.com",
+    "system_access_token": "sk-xxxxxxxxxxxxxxxx",
+    "user_id": "456",
+    "name": "Token 账号"
+  }
+]
+```
+
+> 💡 两种认证方式二选一即可；同时提供时优先使用 `system_access_token`。
+> 使用 token 模式时 `user_id` 是必填的（无法从 token 反解）。
+
+#### 🔑 获取 System Access Token
+
+登录 newapi 后台，进入 **个人设置 → 账户管理 → 安全设置** 页面，点击 **生成令牌** 复制生成的令牌值。
+
+获取到令牌后，在 JSON 配置中设置 `system_access_token` 和 `user_id` 字段即可：
+
+```json
+{
+  "url": "https://api.example.com",
+  "system_access_token": "sk-xxxxxxxxxxxxxxxx",
+  "user_id": "123",
+  "name": "使用 Token 认证"
+}
+```
+
+Token 的优势：
+- ✅ 不易过期（通常 30+ 天，或可设置永不过期）
+- ✅ 无需每次抓 Session Cookie
+- ✅ 权限可控（在后台随时吊销）
+- ✅ 适合 CI/CD 自动化场景
+
 ### 🔔 推送通知配置（可选）
 
 签到完成后自动发送通知，包含签到结果、获得额度、Session 失效提醒等信息。
@@ -365,9 +422,9 @@ schedule:
 
 | 格式 | 说明 | 示例 |
 |------|------|------|
-| `URL#SESSION` | 单账号 | `https://api.example.com#MTc2NzQx...` |
-| `URL1#SESSION1,URL2#SESSION2` | 多网站/多账号（逗号分隔） | `https://a.com#sess1,https://b.com#sess2` |
-| JSON 数组 | 支持备注名称和用户ID（推荐） | 见上文 JSON 格式示例 |
+| `URL#SESSION` | 单账号（仅 cookie 认证） | `https://api.example.com#MTc2NzQx...` |
+| `URL1#SESSION1,URL2#SESSION2` | 多网站/多账号（逗号分隔，仅 cookie 认证） | `https://a.com#sess1,https://b.com#sess2` |
+| JSON 数组 | 支持备注名称、用户ID、System Access Token、CF Clearance（推荐） | 见上文 JSON 格式示例 |
 
 ### 多网站配置示例
 

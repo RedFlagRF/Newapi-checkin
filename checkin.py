@@ -58,13 +58,30 @@ class NewAPICheckin:
         """
         return '****'
 
-    def __init__(self, base_url: str, session_cookie: str, user_id: str = None, cf_clearance: str = None):
+    def __init__(self, base_url: str, session_cookie: str = None, user_id: str = None,
+                 cf_clearance: str = None, system_access_token: str = None):
+        """
+        初始化 NewAPI 客户端。
+
+        两种认证方式二选一（参考 newapi-ai-check-in 的 cookies / system_access_token 设计）：
+        - session_cookie: 传统 cookie 方式
+        - system_access_token: 通过 Authorization: Bearer <token> 头认证（用户后台生成）
+        """
+        if not session_cookie and not system_access_token:
+            raise ValueError('必须提供 session_cookie 或 system_access_token 其中之一')
+
         self.base_url = base_url.rstrip('/')
         self.session_cookie = session_cookie
+        self.system_access_token = system_access_token
+        self.auth_method = 'token' if system_access_token else 'cookie'
         self.original_cf_clearance = cf_clearance
         self.cf_bypassed = False
         self.session = requests.Session()
-        self.session.cookies.set('session', session_cookie)
+
+        if system_access_token:
+            self.session.headers.update({'Authorization': f'Bearer {system_access_token}'})
+        else:
+            self.session.cookies.set('session', session_cookie)
 
         if cf_clearance:
             self.session.cookies.set('cf_clearance', cf_clearance)
@@ -80,10 +97,13 @@ class NewAPICheckin:
         if user_id:
             self.user_id = user_id
             self.session.headers.update({'new-api-user': str(user_id)})
-        else:
+        elif session_cookie:
             self.user_id = self._extract_user_id_from_session(session_cookie)
             if self.user_id:
                 self.session.headers.update({'new-api-user': str(self.user_id)})
+        else:
+            # token 模式下 user_id 必填（没有 cookie 可解析），未提供时由调用方负责
+            self.user_id = None
 
     def _extract_user_id_from_session(self, session_cookie: str) -> Optional[str]:
         """
@@ -277,7 +297,8 @@ class NewAPICheckin:
             result['message'] = 'Cloudflare 拦截: 需安装 Playwright 才能自动绕过 (pip install playwright && playwright install chromium)'
             return result
 
-        bypasser = CloudflareBypasser(self.base_url, self.session_cookie, self.user_id)
+        bypasser = CloudflareBypasser(self.base_url, self.session_cookie, self.user_id,
+                                        system_access_token=self.system_access_token)
 
         if not bypasser.is_available():
             result['message'] = 'Cloudflare 拦截: Playwright 未正确安装'
@@ -412,12 +433,19 @@ def parse_accounts(accounts_str: str) -> list:
         data = json.loads(accounts_str)
         if isinstance(data, list):
             for item in data:
-                if isinstance(item, dict) and 'url' in item and 'session' in item:
+                if isinstance(item, dict) and 'url' in item:
+                    has_session = bool(item.get('session'))
+                    has_token = bool(item.get('system_access_token'))
+                    if not has_session and not has_token:
+                        continue  # 至少需要一种认证
                     account = {
                         'url': item['url'],
-                        'session': item['session'],
                         'name': item.get('name', '')
                     }
+                    if has_session:
+                        account['session'] = item['session']
+                    if has_token:
+                        account['system_access_token'] = item['system_access_token']
                     # 如果提供了 user_id，添加到账号信息中
                     if 'user_id' in item:
                         account['user_id'] = item['user_id']
@@ -589,7 +617,8 @@ def main():
 
     for i, account in enumerate(accounts, 1):
         url = account['url']
-        session_cookie = account['session']
+        session_cookie = account.get('session')
+        system_access_token = account.get('system_access_token')
         user_id = account.get('user_id')  # 获取用户ID（如果提供）
         cf_clearance = account.get('cf_clearance')  # 获取 CF clearance（如果提供）
         name = account.get('name') or f'账号{i}'
@@ -598,6 +627,8 @@ def main():
         print(f'  站点: {NewAPICheckin._mask_url(url)}')
         if user_id:
             print(f'  用户ID: {NewAPICheckin._mask_user_id(user_id)}')
+        if system_access_token:
+            print(f'  认证: System Access Token (sk-****)')
 
         # 基于本地状态文件判断今天该账号是否已成功签到（参考 quark.py 的 should_run）
         if not should_run(name):
@@ -605,7 +636,9 @@ def main():
             print(f'  结果: ⏭️  今日已签到，跳过\n')
             continue
 
-        client = NewAPICheckin(url, session_cookie, user_id, cf_clearance)
+        client = NewAPICheckin(url, session_cookie=session_cookie, user_id=user_id,
+                               cf_clearance=cf_clearance,
+                               system_access_token=system_access_token)
 
         # 获取用户信息
         user_info = client.get_user_info()

@@ -1291,6 +1291,12 @@
     "user_id": "123",
     "name": "主力站",
     "cf_clearance": "xxsCgaPMM..."
+  },
+  {
+    "url": "https://api.example.com",
+    "system_access_token": "sk-xxxxxxxxxxxxxxxx",
+    "user_id": "456",
+    "name": "Token 账号"
   }
 ]'></textarea>
                 <div class="btn-group" style="margin-top: 12px;">
@@ -1415,9 +1421,16 @@
                     <span class="account-item-title">账号 ${accIdx}</span>
                     ${accIdx > 1 ? `<button class="btn btn-danger btn-xs" onclick="removeAccountFromSite(${siteId}, ${accIdx})">删除</button>` : ''}
                 </div>
+                <div class="form-group" style="margin-bottom: 12px;">
+                    <label>认证方式</label>
+                    <select id="acc-auth-method-${siteId}-${accIdx}" onchange="onAuthMethodChange(${siteId}, ${accIdx})" style="width:100%;padding:12px 16px;border:1px solid rgba(255,255,255,0.1);border-radius:10px;font-size:14px;background:rgba(30,30,50,0.6);color:rgba(255,255,255,0.9);outline:none;cursor:pointer;">
+                        <option value="session" style="background:#1a1a2e;">Session Cookie</option>
+                        <option value="token" style="background:#1a1a2e;">System Access Token (Bearer)</option>
+                    </select>
+                </div>
                 <div class="account-fields">
                     <div class="form-group">
-                        <label>Session <span class="required">*</span></label>
+                        <label id="acc-cred-label-${siteId}-${accIdx}">Session <span class="required">*</span></label>
                         <input type="text" id="acc-session-${siteId}-${accIdx}" placeholder="MTc2NzQxMzYzM3...">
                     </div>
                     <div class="form-group">
@@ -1432,6 +1445,19 @@
             `;
 
             accountsContainer.appendChild(accItem);
+        }
+
+        function onAuthMethodChange(siteId, accIdx) {
+            const method = document.getElementById(`acc-auth-method-${siteId}-${accIdx}`).value;
+            const label = document.getElementById(`acc-cred-label-${siteId}-${accIdx}`);
+            const input = document.getElementById(`acc-session-${siteId}-${accIdx}`);
+            if (method === 'token') {
+                label.innerHTML = 'System Access Token <span class="required">*</span>';
+                input.placeholder = 'sk-xxxxxxxxxxxxxxxx';
+            } else {
+                label.innerHTML = 'Session <span class="required">*</span>';
+                input.placeholder = 'MTc2NzQxMzYzM3...';
+            }
         }
 
         function removeAccountFromSite(siteId, accIdx) {
@@ -1498,22 +1524,28 @@
                     const parts = item.id.split('-');
                     const sId = parts[1];
                     const aId = parts[2];
-                    const session = document.getElementById(`acc-session-${sId}-${aId}`).value.trim();
+                    const method = document.getElementById(`acc-auth-method-${sId}-${aId}`).value;
+                    const cred = document.getElementById(`acc-session-${sId}-${aId}`).value.trim();
                     const userId = document.getElementById(`acc-userid-${sId}-${aId}`).value.trim();
                     const name = document.getElementById(`acc-name-${sId}-${aId}`).value.trim();
 
-                    if (!session || !userId) {
-                        alert(`站点 ${siteId} 账号 ${aId}: Session 和 用户ID 不能为空`);
+                    if (!cred || !userId) {
+                        const fieldName = method === 'token' ? 'System Access Token' : 'Session';
+                        alert(`站点 ${siteId} 账号 ${aId}: ${fieldName} 和 用户ID 不能为空`);
                         hasError = true;
                         return;
                     }
 
                     const account = {
                         url: fullUrl,
-                        session: session,
                         user_id: userId,
                         name: name || `站点${siteId}-账号${aId}`
                     };
+                    if (method === 'token') {
+                        account.system_access_token = cred;
+                    } else {
+                        account.session = cred;
+                    }
 
                     if (cfClearance) {
                         account.cf_clearance = cfClearance;
@@ -1526,7 +1558,16 @@
             if (hasError || accounts.length === 0) return;
 
             document.getElementById('json-output').textContent = JSON.stringify(accounts, null, 2);
-            document.getElementById('simple-output').textContent = accounts.map(acc => `${acc.url}#${acc.session}`).join(',');
+
+            const sessionOnly = accounts.filter(acc => acc.session);
+            const tokenOnly = accounts.filter(acc => !acc.session && acc.system_access_token);
+            if (tokenOnly.length > 0) {
+                document.getElementById('simple-output').textContent =
+                    `// ⚠️ ${tokenOnly.length} 个账号使用 System Access Token 认证，简单格式不支持，请使用上方的 JSON 格式\n\n` +
+                    sessionOnly.map(acc => `${acc.url}#${acc.session}`).join(',');
+            } else {
+                document.getElementById('simple-output').textContent = sessionOnly.map(acc => `${acc.url}#${acc.session}`).join(',');
+            }
 
             document.getElementById('result').style.display = 'block';
             document.getElementById('result').scrollIntoView({ behavior: 'smooth' });
@@ -1623,6 +1664,7 @@
                     const sId = parts[1];
                     const aId = parts[2];
                     accs.push({
+                        authMethod: document.getElementById(`acc-auth-method-${sId}-${aId}`).value,
                         session: document.getElementById(`acc-session-${sId}-${aId}`).value.trim(),
                         userId: document.getElementById(`acc-userid-${sId}-${aId}`).value.trim(),
                         name: document.getElementById(`acc-name-${sId}-${aId}`).value.trim()
@@ -1678,6 +1720,9 @@
                     site.accounts.forEach((acc, i) => {
                         if (i > 0) addAccountToSite(sid);
                         const aid = siteAccountCounts[sid];
+                        const method = acc.authMethod || 'session';
+                        document.getElementById(`acc-auth-method-${sid}-${aid}`).value = method;
+                        onAuthMethodChange(sid, aid);
                         document.getElementById(`acc-session-${sid}-${aid}`).value = acc.session || '';
                         document.getElementById(`acc-userid-${sid}-${aid}`).value = acc.userId || '';
                         document.getElementById(`acc-name-${sid}-${aid}`).value = acc.name || '';
@@ -1693,8 +1738,11 @@
                 if (!grouped[key]) {
                     grouped[key] = { url: acc.url || '', cfClearance: acc.cfClearance || acc.cf_clearance || '', accounts: [] };
                 }
+                const cred = acc.session || acc.system_access_token || '';
+                const authMethod = acc.system_access_token ? 'token' : 'session';
                 grouped[key].accounts.push({
-                    session: acc.session || '',
+                    authMethod,
+                    session: cred,
                     userId: acc.userId || acc.user_id || '',
                     name: acc.name || ''
                 });
@@ -1725,8 +1773,12 @@
                 }
 
                 for (let i = 0; i < accounts.length; i++) {
-                    if (!accounts[i].url || !accounts[i].session) {
-                        alert(`⚠️ 第 ${i + 1} 个账号缺少 url 或 session 字段`);
+                    if (!accounts[i].url) {
+                        alert(`⚠️ 第 ${i + 1} 个账号缺少 url 字段`);
+                        return;
+                    }
+                    if (!accounts[i].session && !accounts[i].system_access_token) {
+                        alert(`⚠️ 第 ${i + 1} 个账号缺少 session 或 system_access_token 字段`);
                         return;
                     }
                 }
@@ -2230,18 +2282,23 @@
                     const parts = item.id.split('-');
                     const sId = parts[1];
                     const aId = parts[2];
-                    const session = document.getElementById(`acc-session-${sId}-${aId}`).value.trim();
+                    const method = document.getElementById(`acc-auth-method-${sId}-${aId}`).value;
+                    const cred = document.getElementById(`acc-session-${sId}-${aId}`).value.trim();
                     const userId = document.getElementById(`acc-userid-${sId}-${aId}`).value.trim();
                     const name = document.getElementById(`acc-name-${sId}-${aId}`).value.trim();
 
-                    if (!session) return;
+                    if (!cred) return;
 
                     const account = {
                         url: fullUrl,
-                        session: session,
                         user_id: userId,
                         name: name || `站点${siteId}-账号${aId}`
                     };
+                    if (method === 'token') {
+                        account.system_access_token = cred;
+                    } else {
+                        account.session = cred;
+                    }
 
                     if (cfClearance) {
                         account.cf_clearance = cfClearance;
