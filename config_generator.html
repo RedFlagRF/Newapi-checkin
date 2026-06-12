@@ -2270,14 +2270,13 @@
                 return;
             }
 
-            const dingtalk = {
-                webhook: '',
-                secret: ''
-            };
+            // 推送通知配置（可选）。云端 push 字段为 dict，会按通道注入对应环境变量。
+            // 例如：{ qmsg: "xxx", pushplus: "yyy", workWechat: { corpid, corpSecret, agentid } }
+            const push = {};
 
             const configPayload = {
                 accounts: accounts,
-                dingtalk: dingtalk,
+                push: push,
                 updated_at: new Date().toISOString()
             };
 

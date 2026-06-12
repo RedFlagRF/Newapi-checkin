@@ -9,6 +9,7 @@ import os
 import sys
 import json
 import base64
+import hashlib
 import requests
 from datetime import datetime
 from typing import Optional
@@ -22,7 +23,7 @@ except ImportError:
     CloudflareBypasser = None
 
 try:
-    from dingtalk_notifier import send_checkin_notification
+    from notifier import send_checkin_notification
 except ImportError:
     send_checkin_notification = None
 
@@ -337,6 +338,61 @@ class NewAPICheckin:
             return None
 
 
+def _data_dir() -> str:
+    """签到状态目录（参考 quark.py 的 data/ 设计）"""
+    path = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), 'data')
+    if not os.path.exists(path):
+        os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _account_status_file(account_name: str) -> str:
+    """每个账号每天一个状态文件：data/checkin-YYYY-MM-DD-<hash>.json"""
+    today = datetime.now().strftime('%Y-%m-%d')
+    safe_id = hashlib.md5(account_name.encode('utf-8')).hexdigest()[:10]
+    return os.path.join(_data_dir(), f'checkin-{today}-{safe_id}.json')
+
+
+def should_run(account_name: str) -> bool:
+    """
+    判断今天该账号是否还需要执行（参考 quark.py 的 should_run）。
+
+    - 状态文件不存在 → True（首次执行）
+    - 文件存在但内容为空 → True（异常残留，需重试）
+    - 文件存在且 is_complete=True → False（今天已成功，跳过）
+    - 其他情况 → True（重试）
+    """
+    fp = _account_status_file(account_name)
+    if not os.path.isfile(fp):
+        return True
+    try:
+        with open(fp, 'r', encoding='utf-8') as f:
+            data = f.read().strip()
+        if not data:
+            return True
+        return not json.loads(data).get('is_complete')
+    except Exception:
+        return True
+
+
+def mark_complete(account_name: str, result: dict) -> None:
+    """签到成功后写状态文件（参考 quark.py 的 build_save_data）"""
+    fp = _account_status_file(account_name)
+    payload = {
+        'is_complete': True,
+        'account': account_name,
+        'completed_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'checkin_date': result.get('checkin_date'),
+        'quota_awarded': result.get('quota_awarded'),
+        'message': result.get('message'),
+    }
+    try:
+        with open(fp, 'w', encoding='utf-8') as f:
+            f.write(json.dumps(payload, ensure_ascii=False))
+    except Exception as e:
+        print(f'  [警告] 写入状态文件失败: {e}')
+
+
 def parse_accounts(accounts_str: str) -> list:
     """
     解析账号配置
@@ -439,14 +495,39 @@ def load_config_from_cloud(config_url: str, config_auth: str = None) -> Optional
             accounts_str = json.dumps(accounts)
             print(f'[云端] 成功加载 {len(accounts)} 个账号配置')
 
-            if data.get('dingtalk'):
-                dt = data['dingtalk']
-                if dt.get('webhook') and not os.environ.get('DINGTALK_WEBHOOK'):
-                    os.environ['DINGTALK_WEBHOOK'] = dt['webhook']
-                if dt.get('secret') and not os.environ.get('DINGTALK_SECRET'):
-                    os.environ['DINGTALK_SECRET'] = dt['secret']
-                if dt.get('webhook'):
-                    print('[云端] 已从云端加载钉钉通知配置')
+            push_cfg = data.get('push')
+            if isinstance(push_cfg, dict):
+                # 把云端 push 配置按通道注入到对应环境变量（参考钉钉 DINGTALK_WEBHOOK 风格）
+                # 已有的环境变量优先，不覆盖
+                single_env_map = {
+                    'qmsg': 'PUSH_QMSG_KEY',
+                    'pushplus': 'PUSH_PUSHPLUS_TOKEN',
+                    'server': 'PUSH_SERVER_KEY',
+                    'workWechatRobot': 'PUSH_WORK_WECHAT_ROBOT_KEY',
+                }
+                injected = []
+                for channel, env_name in single_env_map.items():
+                    val = push_cfg.get(channel)
+                    if val and not os.environ.get(env_name):
+                        os.environ[env_name] = str(val)
+                        injected.append(channel)
+
+                ww = push_cfg.get('workWechat')
+                if isinstance(ww, dict):
+                    ww_map = {
+                        'corpid': 'PUSH_WORK_WECHAT_CORPID',
+                        'corpSecret': 'PUSH_WORK_WECHAT_CORP_SECRET',
+                        'agentid': 'PUSH_WORK_WECHAT_AGENT_ID',
+                    }
+                    for k, env_name in ww_map.items():
+                        val = ww.get(k)
+                        if val and not os.environ.get(env_name):
+                            os.environ[env_name] = str(val)
+                    if all(os.environ.get(v) for v in ww_map.values()):
+                        injected.append('workWechat')
+
+                if injected:
+                    print(f'[云端] 已从云端加载推送通知配置：{", ".join(injected)}')
 
             return accounts_str
         else:
@@ -503,6 +584,7 @@ def main():
 
     success_count = 0
     fail_count = 0
+    skip_count = 0
     checkin_results = []
 
     for i, account in enumerate(accounts, 1):
@@ -516,6 +598,12 @@ def main():
         print(f'  站点: {NewAPICheckin._mask_url(url)}')
         if user_id:
             print(f'  用户ID: {NewAPICheckin._mask_user_id(user_id)}')
+
+        # 基于本地状态文件判断今天该账号是否已成功签到（参考 quark.py 的 should_run）
+        if not should_run(name):
+            skip_count += 1
+            print(f'  结果: ⏭️  今日已签到，跳过\n')
+            continue
 
         client = NewAPICheckin(url, session_cookie, user_id, cf_clearance)
 
@@ -567,7 +655,7 @@ def main():
                     total_str = str(total_quota)
                 print(f'  统计: 本月已签 {checkin_count} 天，累计 {total_str} 额度')
 
-            # 收集结果用于钉钉通知
+            # 收集结果用于推送通知
             account_result = {
                 'name': name,
                 'success': True,
@@ -576,11 +664,14 @@ def main():
                 'checkin_count': checkin_count
             }
             checkin_results.append(account_result)
+
+            # 写状态文件，标记今日该账号已完成（参考 quark.py 的 build_save_data）
+            mark_complete(name, result)
         else:
             fail_count += 1
             print(f'  结果: ❌ {result["message"]}')
 
-            # 收集结果用于钉钉通知
+            # 收集结果用于推送通知
             message = result.get('message', '')
             account_result = {
                 'name': name,
@@ -594,23 +685,23 @@ def main():
 
     # 汇总
     print('=' * 50)
-    print(f'签到完成: 成功 {success_count}, 失败 {fail_count}')
+    print(f'签到完成: 成功 {success_count}, 失败 {fail_count}, 跳过 {skip_count}')
     print('=' * 50)
     
-    # 发送钉钉通知
+    # 发送推送通知
     if send_checkin_notification:
-        print('正在发送钉钉通知...')
+        print('正在发送推送通知...')
         send_checkin_notification(checkin_results, execution_time)
-    elif os.environ.get('DINGTALK_WEBHOOK'):
-        print('[警告] 已配置 DINGTALK_WEBHOOK 但无法导入通知模块')
+    elif any(os.environ.get(v) for v in (
+        'PUSH_QMSG_KEY', 'PUSH_PUSHPLUS_TOKEN', 'PUSH_SERVER_KEY',
+        'PUSH_WORK_WECHAT_ROBOT_KEY', 'PUSH_WORK_WECHAT_CORPID',
+    )):
+        print('[警告] 已配置 PUSH_* 但无法导入通知模块')
 
-    # 如果全部失败则返回错误码
-    if fail_count == len(accounts):
+    # 如果所有非跳过的账号都失败则返回错误码
+    if success_count == 0 and fail_count > 0 and skip_count != len(accounts):
         sys.exit(1)
 
 
 if __name__ == '__main__':
     main()
-
-# === DINGTALK NOTIFICATION PATCH ===
-# This section was added to send DingTalk notifications

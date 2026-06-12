@@ -34,6 +34,7 @@ env/
 .spec-workflow
 .claude/
 .serena/
+.omc/
 
 # OS
 .DS_Store
@@ -46,5 +47,8 @@ accounts.json
 newapi_accounts.json
 newapi_accounts.txt
 
+# 签到状态文件（GitHub Actions 缓存用，参考 quark.py 设计）
+data/
+.omc
 # 日志
 *.log

@@ -1,10 +1,16 @@
 name: NewAPI 自动签到
 
 on:
-  # 定时执行：每天 UTC 0:10 (北京时间 8:10)
+  # 定时执行：每天 3 次随机触发，3 个窗口把一天均分（UTC 0-7/8-15/16-23 = 北京 8-15/16-23/0-7）。
+  # 用 H(...) 语法让 GitHub Actions 自动给每个 cron 算一个 hash 随机值，
+  # 避免 sleep 长时间等待（容器进程会被 kill）也避免与其他 workflow 同时打挂站点。
+  # 配合 checkin.py 的 should_run() / mark_complete()，今天已签到的账号会被跳过，
+  # 所以多次重复执行是安全的（保险网，应对网络抖动、临时封控等）。
   schedule:
-    - cron: '10 0 * * *'
-  # 手动触发
+    - cron: 'H(0-19) H(0-7) * * *'     # 窗口 1：UTC 0-7 随机（北京时间 08-15）
+    - cron: 'H(20-39) H(8-15) * * *'   # 窗口 2：UTC 8-15 随机（北京时间 16-23）
+    - cron: 'H(40-59) H(16-23) * * *'  # 窗口 3：UTC 16-23 随机（北京时间 00-07）
+  # 手动触发（不延迟）
   workflow_dispatch:
 
 jobs:
@@ -26,11 +32,31 @@ jobs:
       - name: 安装 Playwright 浏览器
         run: playwright install chromium --with-deps
 
+      - name: 恢复签到状态（data/ 目录缓存，跨运行去重今日已签到的账号）
+        uses: actions/cache@v4
+        with:
+          path: data
+          key: checkin-state-${{ github.run_id }}
+          restore-keys: |
+            checkin-state-
+
       - name: 执行签到
         env:
           CONFIG_URL: ${{ secrets.CONFIG_URL }}
           CONFIG_AUTH: ${{ secrets.CONFIG_AUTH }}
           NEWAPI_ACCOUNTS: ${{ secrets.NEWAPI_ACCOUNTS }}
-          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
-          DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
+          PUSH_QMSG_KEY: ${{ secrets.PUSH_QMSG_KEY }}
+          PUSH_PUSHPLUS_TOKEN: ${{ secrets.PUSH_PUSHPLUS_TOKEN }}
+          PUSH_SERVER_KEY: ${{ secrets.PUSH_SERVER_KEY }}
+          PUSH_WORK_WECHAT_ROBOT_KEY: ${{ secrets.PUSH_WORK_WECHAT_ROBOT_KEY }}
+          PUSH_WORK_WECHAT_CORPID: ${{ secrets.PUSH_WORK_WECHAT_CORPID }}
+          PUSH_WORK_WECHAT_CORP_SECRET: ${{ secrets.PUSH_WORK_WECHAT_CORP_SECRET }}
+          PUSH_WORK_WECHAT_AGENT_ID: ${{ secrets.PUSH_WORK_WECHAT_AGENT_ID }}
         run: python checkin.py
+
+      - name: 保存签到状态（仅定时触发，避免手动触发时回写浪费）
+        if: github.event_name == 'schedule'
+        uses: actions/cache@v4
+        with:
+          path: data
+          key: checkin-state-${{ github.run_id }}
