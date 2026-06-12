@@ -360,10 +360,15 @@ class NewAPICheckin:
 
 
 def _data_dir() -> str:
-    """签到状态目录（参考 quark.py 的 data/ 设计）"""
-    path = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), 'data')
-    if not os.path.exists(path):
-        os.makedirs(path, exist_ok=True)
+    """签到状态目录（参考 quark.py 的 data/ 设计）
+
+    优先级：
+    1. $GITHUB_WORKSPACE（GitHub Actions 下与 actions/cache 恢复路径对齐）
+    2. os.getcwd()（本地运行时用当前工作目录，与 cache 路径天然一致）
+    """
+    base = os.environ.get('GITHUB_WORKSPACE') or os.getcwd()
+    path = os.path.join(base, 'data')
+    os.makedirs(path, exist_ok=True)
     return path
 
 
@@ -584,6 +589,17 @@ def main():
     print('=' * 50)
     print('NewAPI 自动签到')
     print(f'执行时间: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
+    print('=' * 50)
+
+    # 调试信息：显示签到状态目录与今日已有记录，方便排查 actions/cache 是否生效
+    data_dir = _data_dir()
+    today = datetime.now().strftime('%Y-%m-%d')
+    existing_today = [f for f in os.listdir(data_dir)
+                      if f.startswith(f'checkin-{today}-') and f.endswith('.json')]
+    print(f'[状态] data 目录: {data_dir}')
+    print(f'[状态] 今日 ({today}) 已签到账号数: {len(existing_today)}')
+    if existing_today:
+        print(f'[状态] 状态文件: {", ".join(existing_today)}')
     print('=' * 50)
 
     config_url = os.environ.get('CONFIG_URL', '')

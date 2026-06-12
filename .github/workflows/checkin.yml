@@ -44,9 +44,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: data
-          key: checkin-state-${{ github.run_id }}
-          restore-keys: |
-            checkin-state-
+          key: checkin-state-v1
 
       - name: 执行签到
         env:
@@ -67,4 +65,4 @@ jobs:
         uses: actions/cache@v4
         with:
           path: data
-          key: checkin-state-${{ github.run_id }}
+          key: checkin-state-v1
