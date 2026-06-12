@@ -1,15 +1,16 @@
 name: NewAPI 自动签到
 
 on:
-  # 定时执行：每天 3 次随机触发，3 个窗口把一天均分（UTC 0-7/8-15/16-23 = 北京 8-15/16-23/0-7）。
-  # 用 H(...) 语法让 GitHub Actions 自动给每个 cron 算一个 hash 随机值，
-  # 避免 sleep 长时间等待（容器进程会被 kill）也避免与其他 workflow 同时打挂站点。
+  # 定时执行：每天 3 次固定时间点触发（UTC 0/6/12 = 北京时间 8/14/20 点）。
+  # GitHub Actions 的 cron 不支持 H() 随机语法（已实测报 invalid cron），
+  # 改为每个锚点叠 0-5 分钟的短随机抖动，既能避免与其他 workflow 同时打挂站点，
+  # 也防止容器长 sleep 被进程管理 kill。
   # 配合 checkin.py 的 should_run() / mark_complete()，今天已签到的账号会被跳过，
   # 所以多次重复执行是安全的（保险网，应对网络抖动、临时封控等）。
   schedule:
-    - cron: 'H(0-19) H(0-7) * * *'     # 窗口 1：UTC 0-7 随机（北京时间 08-15）
-    - cron: 'H(20-39) H(8-15) * * *'   # 窗口 2：UTC 8-15 随机（北京时间 16-23）
-    - cron: 'H(40-59) H(16-23) * * *'  # 窗口 3：UTC 16-23 随机（北京时间 00-07）
+    - cron: '0 0 * * *'   # 北京时间 08:00
+    - cron: '0 6 * * *'   # 北京时间 14:00
+    - cron: '0 12 * * *'  # 北京时间 20:00
   # 手动触发（不延迟）
   workflow_dispatch:
 
@@ -18,6 +19,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: 短随机延迟（仅定时触发，0-300 秒避免与其他 workflow 撞车）
+        if: github.event_name == 'schedule'
+        run: |
+          DELAY=$((RANDOM % 300))
+          echo "延迟 ${DELAY} 秒"
+          sleep ${DELAY}
+
       - name: 检出代码
         uses: actions/checkout@v4
 
